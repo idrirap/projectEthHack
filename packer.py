@@ -29,17 +29,82 @@ from struct import pack, unpack
      long  e_lfanew; // Offset to the 'PE\0\0' signature relative to the beginning of the file
  }
 
+"""
+
+
+def main(argv):
+    with open(argv[1], "rb") as f:
+
+        binary = f.read()
+        #print(binary)
+
+    reserved1 = [0 for i in range(4)]
+    reserved2 = [0 for i in range(10)]
+    (
+        signature, 
+        lastsize, 
+        nblocks, 
+        nreloc, 
+        hdrsize, 
+        minalloc, 
+        maxalloc, 
+        ss, 
+        sp, 
+        checksum, 
+        ip, 
+        cs, 
+        relocpos, 
+        noverlay, 
+        reserved1[0], reserved1[1], reserved1[2], reserved1[3], 
+        oem_id, 
+        oem_info, 
+        reserved2[0], reserved2[1], reserved2[2], reserved2[3], reserved2[4], reserved2[5], reserved2[6], reserved2[7], 
+        reserved2[8], reserved2[9], 
+        e_lfanew        # offset to the PE
+    ) = unpack("<2sHHHHHHHHHHHHH4HHH10HL", binary[:64])
+
+    
+
+    """
+
 
  struct COFFHeader
  {
-    short Machine;
+    char signature[4]           // contains PE\0\0
+    short Machine;              // type of machines see https://en.wikibooks.org/wiki/X86_Disassembly/Windows_Executable_Files#PE_Header
     short NumberOfSections;
     long TimeDateStamp;
     long PointerToSymbolTable;
     long NumberOfSymbols;
     short SizeOfOptionalHeader;
-    short Characteristics;
+    short Characteristics;      // tell if the file is an exe or a dll etc...
  }
+
+    """
+
+
+    print("Offset PE : {}\n".format(e_lfanew))
+
+    (
+        signaturePE, Machine, NumberOfSections, TimeDateStamp, PointerToSymbolTable, NumberOfSymbols, 
+        SizeOfOptionalHeader, Characteristics
+    ) = unpack("<4sHHLLLHH", binary[e_lfanew:e_lfanew+24])
+    print(unpack("<4sHHLLLHH", binary[e_lfanew:e_lfanew+24]))
+
+    bits = 0
+
+    if Machine == 0x14c:
+        bits = 32
+        print("32bits")
+    if Machine == 0x8664:
+        bits = 64
+        print("64bits")
+
+    if bits == 0:
+
+        return 1
+
+    """
 
  struct PEOptHeader
  {
@@ -81,59 +146,20 @@ long long is 8 bytes
     long NumberOfRvaAndSizes;
     data_directory DataDirectory[NumberOfRvaAndSizes];     //Can have any number of elements, matching the number in NumberOfRvaAndSizes.
  }                                        //However, it is always 16 in PE files.
+    """
 
-"""
-
-
-def main(argv):
-    with open(argv[1], "rb") as f:
-
-        binary = f.read()
-        #print(binary)
-
-    reserved1 = [0 for i in range(4)]
-    reserved2 = [0 for i in range(10)]
-    (
-        signature, 
-        lastsize, 
-        nblocks, 
-        nreloc, 
-        hdrsize, 
-        minalloc, 
-        maxalloc, 
-        ss, 
-        sp, 
-        checksum, 
-        ip, 
-        cs, 
-        relocpos, 
-        noverlay, 
-        reserved1[0], reserved1[1], reserved1[2], reserved1[3], 
-        oem_id, 
-        oem_info, 
-        reserved2[0], reserved2[1], reserved2[2], reserved2[3], reserved2[4], reserved2[5], reserved2[6], reserved2[7], 
-        reserved2[8], reserved2[9], 
-        e_lfanew        # offset to the PE
-    ) = unpack("<2sHHHHHHHHHHHHH4HHH10HL", binary[:64])
-
-    
-
-    print("Offset PE : {}\n".format(e_lfanew))
-
-    (
-        signaturePE, Machine, NumberOfSections, TimeDateStamp, PointerToSymbolTable, NumberOfSymbols, 
-        SizeOfOptionalHeader, Characteristics
-    ) = unpack("<4sHHLLLHH", binary[e_lfanew:e_lfanew+24])
-    print(unpack("<4sHHLLLHH", binary[e_lfanew:e_lfanew+24]))
-
-    if Machine == 0x14c:
-        print("32bits")
-    if Machine == 0x8664:
-        print("64bits")
+    # Optional header are not optional
 
     print("Size of optional header : {}".format(SizeOfOptionalHeader))
     
     offsetPEOpt = e_lfanew + 24
+
+
+    pattern = ""
+    if bits == 32:
+        pattern = "<HccLLLLLLLLLLHHHHHHLLLLHHLLLLL"
+    else:
+        pattern = "<HccLLLLLLLLLLHHHHHHLLLLHHQQQQL"
 
     (
     PEOptsignature, #short
@@ -167,9 +193,9 @@ def main(argv):
     LoaderFlags, #long
     NumberOfRvaAndSizes #long   
     #data_directory DataDirectory[NumberOfRvaAndSizes]
-    ) = unpack("<HccLLLLLLLLLLHHHHHHLLLLHHLLLLL", binary[offsetPEOpt:offsetPEOpt + 96])
-    #print(unpack("<HccLLLLLLLLLHHHHHHLLLLHHLLLLLL", binary[offsetPEOpt:offsetPEOpt + 96]))
+    ) = unpack(pattern, binary[offsetPEOpt:offsetPEOpt + 96])
 
+    print("Entry point : {}".format(hex(AddressOfEntryPoint)))
 
     offsetDD = offsetPEOpt + 96
 
@@ -199,7 +225,7 @@ def main(argv):
   long  PointerToLinenumbers;
   short NumberOfRelocations;
   short NumberOfLinenumbers;
-  long  Characteristics;
+  long  Characteristics;              // Tell if the section is writable, readable, executable and more
  }
     """
     Section = [{
@@ -233,4 +259,4 @@ if __name__=="__main__":
     if len(sys.argv) != 2:
         print("usage: {} <filename>".format(argv[0]))
         exit(1)
-    main(sys.argv)
+    exit(main(sys.argv))
