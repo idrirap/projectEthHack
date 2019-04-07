@@ -62,6 +62,20 @@ class MSDOS:
     def printPEOffset(self):
         print("PE offset : {} / {}".format(hex(self.pe_offset), self.pe_offset))
 
+
+    def repack(self):
+        return pack(
+            "<2sHHHHHHHHHHHHH4HHH10HL",
+            self.signature, self.lastsize, self.nblocks, 
+            self.nreloc, self.hdrsize, self.minalloc, 
+            self.maxalloc, self.ss, self.sp, self.checksum, 
+            self.ip, self.cs, self.relocpos, self.noverlay, 
+            self.reserved1[0], self.reserved1[1], self.reserved1[2], self.reserved1[3], self.oem_id, self.oem_info, 
+            self.reserved2[0], self.reserved2[1], self.reserved2[2], self.reserved2[3], self.reserved2[4], 
+            self.reserved2[5], self.reserved2[6], self.reserved2[7], self.reserved2[8], self.reserved2[9], 
+            self.pe_offset
+        )
+
 """
 
 
@@ -97,6 +111,14 @@ class PEHeader:
             bits = 64
         return bits
 
+
+    def repack(self):
+        return pack(
+            "<4sHHLLLHH",
+            self.signaturePE, self.Machine, self.NumberOfSections, 
+            self.TimeDateStamp, self.PointerToSymbolTable, self.NumberOfSymbols, 
+            self.SizeOfOptionalHeader, self.Characteristics
+        )
 
 """
 
@@ -194,6 +216,29 @@ class PEOptHeader:
                 self.data_directory[i]["size"] 
             ) = unpack("<LL", header[96 + 8*i:96 + 8*(i+1)])
 
+
+    def repack(self):
+        pattern = ""
+        if self.arch == 32:
+            pattern = "<HccLLLLLLLLLLHHHHHHLLLLHHLLLLL"
+        else:
+            pattern = "<HccLLLLLLLLLLHHHHHHLLLLHHQQQQL"
+        output = pack(
+            pattern,
+            self.PEOptsignature, self.MajorLinkerVersion, self.MinorLinkerVersion,
+            self.SizeOfCode, self.SizeOfInitializedData, self.SizeOfUninitializedData,
+            self.AddressOfEntryPoint, self.BaseOfCode, self.BaseOfData, self.ImageBase, 
+            self.SectionAlignment, self.FileAlignment, self.MajorOSVersion, self.MinorOSVersion,
+            self.MajorImageVersion, self.MinorImageVersion, self.MajorSubsystemVersion,
+            self.MinorSubsystemVersion, self.Win32VersionValue, self.SizeOfImage,
+            self.SizeOfHeaders, self.Checksum, self.Subsystem, self.DLLCharacteristics,
+            self.SizeOfStackReserve, self.SizeOfStackCommit, self.SizeOfHeapReserve, 
+            self.SizeOfHeapCommit, self.LoaderFlags, self.NumberOfRvaAndSizes 
+        )
+        for i in range(self.NumberOfRvaAndSizes):
+            output += pack("<LL", self.data_directory[i]["virtualAddress"], self.data_directory[i]["size"])
+        return output
+
 """
     struct IMAGE_SECTION_HEADER 
  {
@@ -259,25 +304,41 @@ class SectionHeader:
             i+=1
 
 
+    def addRight(self, section, right):
+        if right == "r":
+            self.section[self.index[section]]["Characteristics"] |= 0x40000000
+        if right == "w":
+            self.section[self.index[section]]["Characteristics"] |= 0x80000000
+        if right == "x":
+            self.section[self.index[section]]["Characteristics"] |= 0x20000000
+
+
+    def repack(self):
+        output = b''
+        for i in range(len(self.section)):
+            output += pack(
+                "<8sLLLLLLHHL", 
+                self.section[i]["name"], self.section[i]["Misc"], self.section[i]["VirtualAddress"],       # long
+                self.section[i]["SizeOfRawData"], self.section[i]["PointerToRawData"], 
+                self.section[i]["PointerToRelocations"],  self.section[i]["PointerToLinenumbers"], # long
+                self.section[i]["NumberOfRelocations"], self.section[i]["NumberOfLinenumbers"],  # short
+                self.section[i]["Characteristics"],      # long
+            )
+        return output
+
 
 def main(argv):
     with open(argv[1], "rb") as f:
-
         binary = f.read()
-        #print(binary)
-    msdos = MSDOS(binary[:64])
 
+    msdos = MSDOS(binary[:64])
     msdos.printPEOffset()
 
     pe = PEHeader(binary[msdos.pe_offset:msdos.pe_offset + 24])
-
     if pe.getArch() != 0:
         print("{}bits".format(pe.getArch()))
     else:
         return 1
-
-
-
     print("Size of optional header : {}".format(pe.SizeOfOptionalHeader))
     
     offsetPEOpt = msdos.pe_offset + 24
@@ -289,6 +350,13 @@ def main(argv):
     sections = SectionHeader(binary[offsetSectionTable:offsetSectionTable + 40 * pe.NumberOfSections], pe.NumberOfSections)
 
     sections.sectionsInfo()
+
+    # sections.addRight(b'.text\0\0\0', 'w')
+
+    # bin2 = binary[0:offsetSectionTable] + sections.repack() + binary[offsetSectionTable+40*pe.NumberOfSections:]
+
+    # with open("{}2".format(argv[1]), "wb") as f:
+    #     f.write(bin2)
 
 if __name__=="__main__":
     if len(sys.argv) != 2:

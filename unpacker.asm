@@ -38,5 +38,6 @@ test ecx, ecx
 jnz revert_xor
 inc al
 jmp start_main_loop
-run_prog:
-;start
+run_prog:	;start
+mov eax, ADDRESS_CODE_START
+call eax
