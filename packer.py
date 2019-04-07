@@ -31,41 +31,38 @@ from struct import pack, unpack
 
 """
 
+class MSDOS:
 
-def main(argv):
-    with open(argv[1], "rb") as f:
+    def __init__(self, headerbin):
+        self.reserved1 = [0 for i in range(4)]
+        self.reserved2 = [0 for i in range(10)]
+        (
+            self.signature, 
+            self.lastsize, 
+            self.nblocks, 
+            self.nreloc, 
+            self.hdrsize, 
+            self.minalloc, 
+            self.maxalloc, 
+            self.ss, 
+            self.sp, 
+            self.checksum, 
+            self.ip, 
+            self.cs, 
+            self.relocpos, 
+            self.noverlay, 
+            self.reserved1[0], self.reserved1[1], self.reserved1[2], self.reserved1[3], 
+            self.oem_id, 
+            self.oem_info, 
+            self.reserved2[0], self.reserved2[1], self.reserved2[2], self.reserved2[3], self.reserved2[4], 
+            self.reserved2[5], self.reserved2[6], self.reserved2[7], self.reserved2[8], self.reserved2[9], 
+            self.pe_offset
+        ) = unpack("<2sHHHHHHHHHHHHH4HHH10HL", headerbin)
 
-        binary = f.read()
-        #print(binary)
+    def printPEOffset(self):
+        print("PE offset : {} / {}".format(hex(self.pe_offset), self.pe_offset))
 
-    reserved1 = [0 for i in range(4)]
-    reserved2 = [0 for i in range(10)]
-    (
-        signature, 
-        lastsize, 
-        nblocks, 
-        nreloc, 
-        hdrsize, 
-        minalloc, 
-        maxalloc, 
-        ss, 
-        sp, 
-        checksum, 
-        ip, 
-        cs, 
-        relocpos, 
-        noverlay, 
-        reserved1[0], reserved1[1], reserved1[2], reserved1[3], 
-        oem_id, 
-        oem_info, 
-        reserved2[0], reserved2[1], reserved2[2], reserved2[3], reserved2[4], reserved2[5], reserved2[6], reserved2[7], 
-        reserved2[8], reserved2[9], 
-        e_lfanew        # offset to the PE
-    ) = unpack("<2sHHHHHHHHHHHHH4HHH10HL", binary[:64])
-
-    
-
-    """
+"""
 
 
  struct COFFHeader
@@ -80,31 +77,28 @@ def main(argv):
     short Characteristics;      // tell if the file is an exe or a dll etc...
  }
 
-    """
+"""
+
+class PEHeader:
+
+    def __init__(self, headerbin):
+        (
+            self.signaturePE, self.Machine, self.NumberOfSections, 
+            self.TimeDateStamp, self.PointerToSymbolTable, self.NumberOfSymbols, 
+            self.SizeOfOptionalHeader, self.Characteristics
+        ) = unpack("<4sHHLLLHH", headerbin)
+
+    def getArch(self):
+        bits = 0
+
+        if self.Machine == 0x14c:
+            bits = 32
+        if self.Machine == 0x8664:
+            bits = 64
+        return bits
 
 
-    print("Offset PE : {}\n".format(e_lfanew))
-
-    (
-        signaturePE, Machine, NumberOfSections, TimeDateStamp, PointerToSymbolTable, NumberOfSymbols, 
-        SizeOfOptionalHeader, Characteristics
-    ) = unpack("<4sHHLLLHH", binary[e_lfanew:e_lfanew+24])
-    print(unpack("<4sHHLLLHH", binary[e_lfanew:e_lfanew+24]))
-
-    bits = 0
-
-    if Machine == 0x14c:
-        bits = 32
-        print("32bits")
-    if Machine == 0x8664:
-        bits = 64
-        print("64bits")
-
-    if bits == 0:
-
-        return 1
-
-    """
+"""
 
  struct PEOptHeader
  {
@@ -146,69 +140,61 @@ long long is 8 bytes
     long NumberOfRvaAndSizes;
     data_directory DataDirectory[NumberOfRvaAndSizes];     //Can have any number of elements, matching the number in NumberOfRvaAndSizes.
  }                                        //However, it is always 16 in PE files.
-    """
+"""
 
-    # Optional header are not optional
-
-    print("Size of optional header : {}".format(SizeOfOptionalHeader))
-    
-    offsetPEOpt = e_lfanew + 24
+# Optional header are not optional
 
 
-    pattern = ""
-    if bits == 32:
-        pattern = "<HccLLLLLLLLLLHHHHHHLLLLHHLLLLL"
-    else:
-        pattern = "<HccLLLLLLLLLLHHHHHHLLLLHHQQQQL"
-
-    (
-    PEOptsignature, #short
-    MajorLinkerVersion, #char
-    MinorLinkerVersion, #char
-    SizeOfCode, #long
-    SizeOfInitializedData, #long   
-    SizeOfUninitializedData,    #long
-    AddressOfEntryPoint, #long
-    BaseOfCode, #long
-    BaseOfData, #long
-    ImageBase, #long
-    SectionAlignment, #long   
-    FileAlignment, #long
-    MajorOSVersion, #short
-    MinorOSVersion, #short
-    MajorImageVersion, #short
-    MinorImageVersion, #short
-    MajorSubsystemVersion, #short 
-    MinorSubsystemVersion, #short
-    Win32VersionValue, #long
-    SizeOfImage, #long
-    SizeOfHeaders, #long
-    Checksum, #long
-    Subsystem, #short
-    DLLCharacteristics, #short   
-    SizeOfStackReserve, #long -> long long if 64b
-    SizeOfStackCommit, #long -> long long if 64b
-    SizeOfHeapReserve, #long -> long long if 64b
-    SizeOfHeapCommit, #long -> long long if 64b
-    LoaderFlags, #long
-    NumberOfRvaAndSizes #long   
-    #data_directory DataDirectory[NumberOfRvaAndSizes]
-    ) = unpack(pattern, binary[offsetPEOpt:offsetPEOpt + 96])
-
-    print("Entry point : {}".format(hex(AddressOfEntryPoint)))
-
-    offsetDD = offsetPEOpt + 96
-
-    data_directory = [{"virtualAddress": 0, "size": 0} for i in range(NumberOfRvaAndSizes)]
-
-    for i in range(NumberOfRvaAndSizes):
+class PEOptHeader:
+    def __init__(self, header, arch):
+        self.arch = arch
+        pattern = ""
+        if arch == 32:
+            pattern = "<HccLLLLLLLLLLHHHHHHLLLLHHLLLLL"
+        else:
+            pattern = "<HccLLLLLLLLLLHHHHHHLLLLHHQQQQL"
         (
-            data_directory[i]["virtualAddress"], 
-            data_directory[i]["size"] 
-        ) = unpack("<LL", binary[offsetDD+8*i:offsetDD+8*(i+1)])
-        #print("{}, {}".format(format(data_directory[i]["virtualAddress"], "#09x"), data_directory[i]["size"]))
+            self.PEOptsignature, #short
+            self.MajorLinkerVersion, #char
+            self.MinorLinkerVersion, #char
+            self.SizeOfCode, #long
+            self.SizeOfInitializedData, #long   
+            self.SizeOfUninitializedData,    #long
+            self.AddressOfEntryPoint, #long
+            self.BaseOfCode, #long
+            self.BaseOfData, #long
+            self.ImageBase, #long
+            self.SectionAlignment, #long   
+            self.FileAlignment, #long
+            self.MajorOSVersion, #short
+            self.MinorOSVersion, #short
+            self.MajorImageVersion, #short
+            self.MinorImageVersion, #short
+            self.MajorSubsystemVersion, #short 
+            self.MinorSubsystemVersion, #short
+            self.Win32VersionValue, #long
+            self.SizeOfImage, #long
+            self.SizeOfHeaders, #long
+            self.Checksum, #long
+            self.Subsystem, #short
+            self.DLLCharacteristics, #short   
+            self.SizeOfStackReserve, #long -> long long if 64b
+            self.SizeOfStackCommit, #long -> long long if 64b
+            self.SizeOfHeapReserve, #long -> long long if 64b
+            self.SizeOfHeapCommit, #long -> long long if 64b
+            self.LoaderFlags, #long
+            self.NumberOfRvaAndSizes #long   
+            #data_directory DataDirectory[NumberOfRvaAndSizes]
+        ) = unpack(pattern, header[0:96])
+        self.data_directory = [{"virtualAddress": 0, "size": 0} for i in range(self.NumberOfRvaAndSizes)]
 
-    """
+        for i in range(self.NumberOfRvaAndSizes):
+            (
+                self.data_directory[i]["virtualAddress"], 
+                self.data_directory[i]["size"] 
+            ) = unpack("<LL", header[96 + 8*i:96 + 8*(i+1)])
+
+"""
     struct IMAGE_SECTION_HEADER 
  {
 // short is 2 bytes
@@ -228,35 +214,84 @@ long long is 8 bytes
   long  Characteristics;              // Tell if the section is writable, readable, executable and more
  }
     """
-    Section = [{
+
+class SectionHeader:
+    def __init__(self, header, nbSections):
+        self.section = [{
                 "name":None, "Misc": None, "VirtualAddress": None,
                 "SizeOfRawData": None, "PointerToRawData": None, "PointerToRelocations": None,
                 "PointerToLinenumbers": None, "NumberOfRelocations": None, "NumberOfLinenumbers": None,
                 "Characteristics": None,
-                } for i in range(NumberOfSections)]
+                } for i in range(nbSections)]
+        self.index = {}
 
-    offsetSectionLoader = offsetPEOpt+SizeOfOptionalHeader
+        for i in range(nbSections):
+            (
+                self.section[i]["name"],                 # 8char
+                self.section[i]["Misc"],                 # long
+                self.section[i]["VirtualAddress"],       # long
+                self.section[i]["SizeOfRawData"],        # long
+                self.section[i]["PointerToRawData"],     # long
+                self.section[i]["PointerToRelocations"], # long
+                self.section[i]["PointerToLinenumbers"], # long
+                self.section[i]["NumberOfRelocations"],  # short
+                self.section[i]["NumberOfLinenumbers"],  # short
+                self.section[i]["Characteristics"],      # long
+            ) = unpack("<8sLLLLLLHHL", header[40*i:40*(i+1)])
+            self.index[self.section[i]["name"]] = i
 
-    for i in range(NumberOfSections):
-        (
-            Section[i]["name"],                 # 8char
-            Section[i]["Misc"],                 # long
-            Section[i]["VirtualAddress"],       # long
-            Section[i]["SizeOfRawData"],        # long
-            Section[i]["PointerToRawData"],     # long
-            Section[i]["PointerToRelocations"], # long
-            Section[i]["PointerToLinenumbers"], # long
-            Section[i]["NumberOfRelocations"],  # short
-            Section[i]["NumberOfLinenumbers"],  # short
-            Section[i]["Characteristics"],      # long
-        ) = unpack("<8sLLLLLLHHL", binary[offsetSectionLoader+40*i:offsetSectionLoader+40*(i+1)])
-        print("{} {}".format(
-            Section[i]["name"], hex(Section[i]["VirtualAddress"]),
-            )
-        )
+
+    def getSectionRights(self, i):
+        secChara = self.section[i]["Characteristics"] & 0xF0000000
+        rights = ""
+        if secChara & 0x40000000 == 0x40000000:
+            rights += "r"
+        if secChara & 0x80000000 == 0x80000000:
+            rights += "w"
+        if secChara & 0x20000000 == 0x20000000:
+            rights += "x"
+        return rights
+
+    def sectionsInfo(self):
+        i = 0
+        for sec in self.section:
+            print("{} : {} - {}".format(sec["name"], hex(sec["VirtualAddress"]), self.getSectionRights(i)))
+            i+=1
+
+
+
+def main(argv):
+    with open(argv[1], "rb") as f:
+
+        binary = f.read()
+        #print(binary)
+    msdos = MSDOS(binary[:64])
+
+    msdos.printPEOffset()
+
+    pe = PEHeader(binary[msdos.pe_offset:msdos.pe_offset + 24])
+
+    if pe.getArch() != 0:
+        print("{}bits".format(pe.getArch()))
+    else:
+        return 1
+
+
+
+    print("Size of optional header : {}".format(pe.SizeOfOptionalHeader))
+    
+    offsetPEOpt = msdos.pe_offset + 24
+
+    opt = PEOptHeader(binary[offsetPEOpt:offsetPEOpt + pe.SizeOfOptionalHeader], pe.getArch())
+    
+    offsetSectionTable = offsetPEOpt + pe.SizeOfOptionalHeader
+
+    sections = SectionHeader(binary[offsetSectionTable:offsetSectionTable + 40 * pe.NumberOfSections], pe.NumberOfSections)
+
+    sections.sectionsInfo()
 
 if __name__=="__main__":
     if len(sys.argv) != 2:
-        print("usage: {} <filename>".format(argv[0]))
+        print("usage: {} <filename>".format(sys.argv[0]))
         exit(1)
     exit(main(sys.argv))
