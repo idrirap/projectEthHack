@@ -15,7 +15,7 @@ mov edx, PARTIAL_KEY 	;key
 xor eax, eax			; end of key
 start_main_loop: 		; xor
 and edx, 0xFFFFFF00		; set two last bytes to 0
-or edx, al				; change two last bytes
+or dl, al				; change two last bytes
 start_second_loop:
 xor [ebx + ecx], edx
 dec ecx
@@ -39,5 +39,4 @@ jnz revert_xor
 inc al
 jmp start_main_loop
 run_prog:	;start
-mov eax, ADDRESS_CODE_START
-call eax
+call ebx

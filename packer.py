@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 
+import secrets
 import sys
+import subprocess
 from struct import pack, unpack
 
 
@@ -215,6 +217,7 @@ class PEOptHeader:
                 self.data_directory[i]["virtualAddress"], 
                 self.data_directory[i]["size"] 
             ) = unpack("<LL", header[96 + 8*i:96 + 8*(i+1)])
+        self.OEP = self.AddressOfEntryPoint 
 
 
     def repack(self):
@@ -238,6 +241,13 @@ class PEOptHeader:
         for i in range(self.NumberOfRvaAndSizes):
             output += pack("<LL", self.data_directory[i]["virtualAddress"], self.data_directory[i]["size"])
         return output
+
+    def getOEP(self):
+        return self.OEP
+
+
+    def setEP(self, newEP):
+        self.AddressOfEntryPoint = newEP
 
 """
     struct IMAGE_SECTION_HEADER 
@@ -300,18 +310,26 @@ class SectionHeader:
     def sectionsInfo(self):
         i = 0
         for sec in self.section:
-            print("{} : {} - {}".format(sec["name"], hex(sec["VirtualAddress"]), self.getSectionRights(i)))
+            print("{} : {} -> {} - {}".format(
+                sec["name"], hex(sec["PointerToRawData"]), hex(sec["SizeOfRawData"]) , self.getSectionRights(i))
+            )
             i+=1
 
 
-    def addRight(self, section, right):
+    def addRight(self, sectionName, right):
         if right == "r":
-            self.section[self.index[section]]["Characteristics"] |= 0x40000000
+            self.section[self.index[sectionName]]["Characteristics"] |= 0x40000000
         if right == "w":
-            self.section[self.index[section]]["Characteristics"] |= 0x80000000
+            self.section[self.index[sectionName]]["Characteristics"] |= 0x80000000
         if right == "x":
-            self.section[self.index[section]]["Characteristics"] |= 0x20000000
+            self.section[self.index[sectionName]]["Characteristics"] |= 0x20000000
 
+
+    def getStartAddr(self, sectionName):
+        return self.section[self.index[sectionName]]["PointerToRawData"]
+
+    def getEndAddr(self, sectionName):
+        return self.section[self.index[sectionName] + 1]["PointerToRawData"]
 
     def repack(self):
         output = b''
@@ -325,6 +343,43 @@ class SectionHeader:
                 self.section[i]["Characteristics"],      # long
             )
         return output
+
+
+def generateKey():
+    random = secrets.token_bytes(4)
+    while(int.from_bytes(random, 'big') & 0x000000FF == 0):
+        random = secrets.token_bytes(4)
+    return random
+
+
+def hashing(data):
+    output = 0
+    for i in range(int(len(data)/4)):
+        output ^= int.from_bytes(data[4*i:4*(i+1)], 'big')
+    return output
+
+def xorDat(data, key):
+    data = bytearray(data)
+    for i in range(len(data)):
+        data[i] ^= key[i % 4]
+    return data
+
+
+def createUnpacker(ADDRESS_CODE_START, TOTAL_CODE_SIZE, PARTIAL_KEY, CORRECT_HASH, Arch=0): # TODO Arch 32/64
+    key = int.from_bytes(PARTIAL_KEY, 'big') & 0xFFFFFF00
+    subprocess.run(["cp", "unpacker.asm", "tmpUnpack.asm"])
+    subprocess.run(["sed", "-i", "-e", f"s/ADDRESS_CODE_START/{hex(ADDRESS_CODE_START)}/g", "tmpUnpack.asm"])
+    subprocess.run(["sed", "-i", "-e", f"s/TOTAL_CODE_SIZE/{hex(TOTAL_CODE_SIZE)}/g", "tmpUnpack.asm"])
+    subprocess.run(["sed", "-i", "-e", f"s/PARTIAL_KEY/{hex(key)}/g", "tmpUnpack.asm"])
+    subprocess.run(["sed", "-i", "-e", f"s/CORRECT_HASH/{hex(CORRECT_HASH)}/g", "tmpUnpack.asm"])
+    subprocess.run(["nasm", "tmpUnpack.asm"])
+    subprocess.run(["rm", "tmpUnpack.asm"])
+    with open("tmpUnpack", "rb") as f:
+        output = f.read()
+    subprocess.run(["rm", "tmpUnpack"])
+    return output
+
+
 
 
 def main(argv):
@@ -349,16 +404,27 @@ def main(argv):
 
     sections = SectionHeader(binary[offsetSectionTable:offsetSectionTable + 40 * pe.NumberOfSections], pe.NumberOfSections)
 
+    endSectionHeader = offsetSectionTable + 40 * pe.NumberOfSections
+
     sections.sectionsInfo()
 
-    # sections.addRight(b'.text\0\0\0', 'w')
+    entry = opt.getOEP()
+    text = sections.getStartAddr(b'.text\0\0\0')
+    textEnd = sections.getEndAddr(b'.text\0\0\0')
+    key = generateKey()
+    packedText = xorDat(binary[entry:textEnd], key)
+    goodHash = hashing(binary[entry:textEnd])
+    sections.addRight(b'.text\0\0\0', 'w')
+    unpacker = createUnpacker(entry, textEnd - entry, key, goodHash)
+    opt.setEP(text)
 
-    # bin2 = binary[0:offsetSectionTable] + sections.repack() + binary[offsetSectionTable+40*pe.NumberOfSections:]
+    packedBin = (binary[0:offsetPEOpt] + opt.repack() + sections.repack() + binary[endSectionHeader:text] + unpacker +
+    binary[text+len(unpacker):entry] + packedText + binary[textEnd:])
 
-    # with open("{}2".format(argv[1]), "wb") as f:
-    #     f.write(bin2)
+    with open("{}2".format(argv[1]), "wb") as f:
+        f.write(packedBin)
 
-if __name__=="__main__":
+if __name__=="__main__": # TODO : Add CLI
     if len(sys.argv) != 2:
         print("usage: {} <filename>".format(sys.argv[0]))
         exit(1)
