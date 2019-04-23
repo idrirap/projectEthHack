@@ -122,6 +122,10 @@ class PEHeader:
             self.SizeOfOptionalHeader, self.Characteristics
         )
 
+
+    def addSection(self):
+        self.NumberOfSections += 1
+
 """
 
  struct PEOptHeader
@@ -307,13 +311,47 @@ class SectionHeader:
             rights += "x"
         return rights
 
-    def sectionsInfo(self):
+    def sectionsInfo(self, full):
         i = 0
+        if full : 
+            print("\033[32mName, \033[33mmisc, \033[34mvirtualAddr, \033[35msizeRaw, \033[36mptrRaw, \033[39mptrReloc, ptrLine, nbReloc, nbLine, meta")
         for sec in self.section:
-            print("{} : {} -> {} - {}".format(
-                sec["name"], hex(sec["PointerToRawData"]), hex(sec["SizeOfRawData"]) , self.getSectionRights(i))
-            )
+            if not full : 
+                print("{} : {} -> {} - {}".format(
+                    sec["name"], hex(sec["PointerToRawData"]), hex(sec["SizeOfRawData"]) , self.getSectionRights(i))
+                )
+            else:
+                print("\033[32m{}, \033[33m{}, \033[34m{}, \033[35m{}, \033[36m{}, \033[39m{}, {}, {}, {}, {}".format(
+                    self.section[i]["name"],                 # 8char
+                    hex(self.section[i]["Misc"]),                 # long
+                    hex(self.section[i]["VirtualAddress"]),       # long
+                    hex(self.section[i]["SizeOfRawData"]),        # long
+                    hex(self.section[i]["PointerToRawData"]),     # long
+                    hex(self.section[i]["PointerToRelocations"]), # long
+                    hex(self.section[i]["PointerToLinenumbers"]), # long
+                    hex(self.section[i]["NumberOfRelocations"]),  # short
+                    hex(self.section[i]["NumberOfLinenumbers"]),  # short
+                    hex(self.section[i]["Characteristics"]),      # long
+                ))
             i+=1
+
+
+    def addSection(self, name, misc, size, meta):
+        prevSize = self.section[-1]["SizeOfRawData"]
+        newSec = {
+            "name": name,
+            "Misc": misc,
+            "VirtualAddress": self.section[-1]["VirtualAddress"] + prevSize,
+            "SizeOfRawData": size,
+            "PointerToRawData": self.section[-1]["PointerToRawData"] + prevSize,
+            "PointerToRelocations": 0,
+            "PointerToLinenumbers": 0,
+            "NumberOfRelocations": 0,
+            "NumberOfLinenumbers": 0,
+            "Characteristics": meta
+        }
+        self.section.append(newSec)
+        self.index[self.section[-1]["name"]] = len(self.section) - 1
 
 
     def addRight(self, sectionName, right):
@@ -328,8 +366,11 @@ class SectionHeader:
     def getStartAddr(self, sectionName):
         return self.section[self.index[sectionName]]["PointerToRawData"]
 
+    def getVirtStart(self, sectionName):
+        return self.section[self.index[sectionName]]["VirtualAddress"]
+
     def getEndAddr(self, sectionName):
-        return self.section[self.index[sectionName] + 1]["PointerToRawData"]
+        return self.section[self.index[sectionName]]["PointerToRawData"] + self.section[self.index[sectionName]]["SizeOfRawData"]
 
     def repack(self):
         output = b''
@@ -368,7 +409,7 @@ def xorDat(data, key):
 def createUnpacker(ADDRESS_CODE_START, TOTAL_CODE_SIZE, PARTIAL_KEY, CORRECT_HASH, Arch=0): # TODO Arch 32/64
     key = int.from_bytes(PARTIAL_KEY, 'big') & 0xFFFFFF00
     subprocess.run(["cp", "unpacker.asm", "tmpUnpack.asm"])
-    subprocess.run(["sed", "-i", "-e", f"s/ADDRESS_CODE_START/{hex(ADDRESS_CODE_START)}/g", "tmpUnpack.asm"])
+    subprocess.run(["sed", "-i", "-e", f"s/ADDRESS_CODE_START/{hex(ADDRESS_CODE_START + 0x400000)}/g", "tmpUnpack.asm"])
     subprocess.run(["sed", "-i", "-e", f"s/TOTAL_CODE_SIZE/{hex(TOTAL_CODE_SIZE)}/g", "tmpUnpack.asm"])
     subprocess.run(["sed", "-i", "-e", f"s/PARTIAL_KEY/{hex(key)}/g", "tmpUnpack.asm"])
     subprocess.run(["sed", "-i", "-e", f"s/CORRECT_HASH/{hex(CORRECT_HASH)}/g", "tmpUnpack.asm"])
@@ -386,9 +427,11 @@ def main(argv):
     with open(argv[1], "rb") as f:
         binary = f.read()
 
+    # Parse MSDOS header
     msdos = MSDOS(binary[:64])
     msdos.printPEOffset()
 
+    # Find address of PEHeader
     pe = PEHeader(binary[msdos.pe_offset:msdos.pe_offset + 24])
     if pe.getArch() != 0:
         print("{}bits".format(pe.getArch()))
@@ -398,30 +441,59 @@ def main(argv):
     
     offsetPEOpt = msdos.pe_offset + 24
 
+    # Parse optional header
     opt = PEOptHeader(binary[offsetPEOpt:offsetPEOpt + pe.SizeOfOptionalHeader], pe.getArch())
     
     offsetSectionTable = offsetPEOpt + pe.SizeOfOptionalHeader
-
+    # Parse sections header
     sections = SectionHeader(binary[offsetSectionTable:offsetSectionTable + 40 * pe.NumberOfSections], pe.NumberOfSections)
 
     endSectionHeader = offsetSectionTable + 40 * pe.NumberOfSections
 
-    sections.sectionsInfo()
+    # Print sections infos
+    sections.sectionsInfo(True)
 
+    # Get original entry point
     entry = opt.getOEP()
+    print("OEP : {}".format(hex(entry)))
+    
+    # Get starting and finishing address of .text section
     text = sections.getStartAddr(b'.text\0\0\0')
     textEnd = sections.getEndAddr(b'.text\0\0\0')
+
+    # Set .text writeable
+    sections.addRight(b'.text\0\0\0', 'w')
+
     key = generateKey()
+    print(f"key : {key}")
+
     packedText = xorDat(binary[entry:textEnd], key)
     goodHash = hashing(binary[entry:textEnd])
-    sections.addRight(b'.text\0\0\0', 'w')
+    
     unpacker = createUnpacker(entry, textEnd - entry, key, goodHash)
-    opt.setEP(text)
 
-    packedBin = (binary[0:offsetPEOpt] + opt.repack() + sections.repack() + binary[endSectionHeader:text] + unpacker +
-    binary[text+len(unpacker):entry] + packedText + binary[textEnd:])
+    # Create new pack section
+    sections.addSection(b'.unpack\0', len(unpacker), len(unpacker), 0x60000020)
+    pe.addSection()
 
-    with open("{}2".format(argv[1]), "wb") as f:
+    # Get starting and finishing address of .text section
+    upckStart = sections.getStartAddr(b'.unpack\0')
+    upckEnd = sections.getEndAddr(b'.unpack\0')
+
+    # Set net entry point to the unpacker location 
+    opt.setEP(sections.getVirtStart(b'.unpack\0'))
+
+    packedBin = (
+        binary[0:msdos.pe_offset] + pe.repack() + opt.repack() + sections.repack() + 
+        binary[endSectionHeader + 40:opt.getOEP()] + # endSectionHeader + 40 (.packed added)
+        packedText + binary[textEnd:upckStart] +  
+        unpacker + binary[upckStart:] # from start bc .packed doesn't exist in original binary
+    )
+
+    # Print sections infos
+    sections.sectionsInfo(True)
+
+    with open("{}.packed.exe".format(argv[1]), "wb") as f:
         f.write(packedBin)
 
 if __name__=="__main__": # TODO : Add CLI
