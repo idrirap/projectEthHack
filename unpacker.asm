@@ -45,6 +45,6 @@ pop edx
 pop eax
 pop ecx
 pop ebx
-push ADDRESS_CODE_START
+push ADDRESS_OEP
 ;call ebx
 ret

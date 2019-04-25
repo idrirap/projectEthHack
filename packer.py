@@ -215,13 +215,42 @@ class PEOptHeader:
             #data_directory DataDirectory[NumberOfRvaAndSizes]
         ) = unpack(pattern, header[0:96])
         self.data_directory = [{"virtualAddress": 0, "size": 0} for i in range(self.NumberOfRvaAndSizes)]
-
         for i in range(self.NumberOfRvaAndSizes):
             (
                 self.data_directory[i]["virtualAddress"], 
                 self.data_directory[i]["size"] 
             ) = unpack("<LL", header[96 + 8*i:96 + 8*(i+1)])
         self.OEP = self.AddressOfEntryPoint 
+
+
+    def affiche(self):
+        print(
+            f'MinorLinkerVersion : {self.MinorLinkerVersion} \n' +
+            f'SizeOfCode : {hex(self.SizeOfCode)} \n' +
+            f'SizeOfInitializedData : {hex(self.SizeOfInitializedData)} \n' +
+            f'SizeOfUninitializedData : {hex(self.SizeOfUninitializedData)} \n' +
+            f'AddressOfEntryPoint : {hex(self.AddressOfEntryPoint)} \n' +
+            f'BaseOfCode : {hex(self.BaseOfCode)} \n' +
+            f'BaseOfData : {hex(self.BaseOfData)} \n' +
+            f'ImageBase : {hex(self.ImageBase)} \n' +
+            f'SectionAlignment : {hex(self.SectionAlignment)} \n' +
+            f'FileAlignment : {hex(self.FileAlignment)} \n' +
+            f'MajorImageVersion : {hex(self.MajorImageVersion)} \n' +
+            f'MinorImageVersion : {hex(self.MinorImageVersion)} \n' +
+            f'MajorSubsystemVersion : {hex(self.MajorSubsystemVersion)} \n' +
+            f'MinorSubsystemVersion : {hex(self.MinorSubsystemVersion)} \n' +
+            f'Win32VersionValue : {hex(self.Win32VersionValue)} \n' +
+            f'SizeOfImage : {hex(self.SizeOfImage)} \n' +
+            f'SizeOfHeaders : {hex(self.SizeOfHeaders)} \n' +
+            f'Checksum : {hex(self.Checksum)} \n' +
+            f'Subsystem : {hex(self.Subsystem)} \n' +
+            f'DLLCharacteristics : {hex(self.DLLCharacteristics)} \n' +
+            f'SizeOfStackReserve : {hex(self.SizeOfStackReserve)} \n' +
+            f'SizeOfStackCommit : {hex(self.SizeOfStackCommit)} \n' +
+            f'SizeOfHeapReserve : {hex(self.SizeOfHeapReserve)} \n' +
+            f'SizeOfHeapCommit : {hex(self.SizeOfHeapCommit)} \n' +
+            f'LoaderFlags : {hex(self.LoaderFlags)} \n' 
+        )
 
 
     def repack(self):
@@ -249,6 +278,11 @@ class PEOptHeader:
     def getOEP(self):
         return self.OEP
 
+    def addCode(self, size):
+        self.SizeOfCode += size
+
+    def setSectionsSize(self, size):
+        self.SizeOfImage = self.SizeOfHeaders + size
 
     def setEP(self, newEP):
         self.AddressOfEntryPoint = newEP
@@ -299,6 +333,12 @@ class SectionHeader:
             ) = unpack("<8sLLLLLLHHL", header[40*i:40*(i+1)])
             self.index[self.section[i]["name"]] = i
 
+
+    def getStartSize(self):
+        output = []
+        for i in self.section:
+            output.append([i["PointerToRawData"],i["SizeOfRawData"]])
+        return output
 
     def getSectionRights(self, i):
         secChara = self.section[i]["Characteristics"] & 0xF0000000
@@ -391,6 +431,11 @@ class SectionHeader:
             )
         return output
 
+    def getSectionsTotalSize(self):
+        total = 0
+        for i in self.section:
+            total += i["SizeOfRawData"]
+        return total
 
 def generateKey():
     random = secrets.token_bytes(4)
@@ -412,7 +457,8 @@ def xorDat(data, key):
     return data
 
 
-def createUnpacker(ADDRESS_CODE_START, TOTAL_CODE_SIZE, PARTIAL_KEY, CORRECT_HASH, Arch=0): # TODO Arch 32/64
+def createUnpacker(ADDRESS_OEP, ADDRESS_CODE_START, TOTAL_CODE_SIZE, PARTIAL_KEY, CORRECT_HASH, Arch=0): # TODO Arch 32/64
+    print(f"partial key : {PARTIAL_KEY}, CORRECT_HASH : {hex(CORRECT_HASH)}")
     print(hex(TOTAL_CODE_SIZE))
     key = int.from_bytes(PARTIAL_KEY, 'little') & 0xFFFFFF00
     #little indianing
@@ -423,6 +469,7 @@ def createUnpacker(ADDRESS_CODE_START, TOTAL_CODE_SIZE, PARTIAL_KEY, CORRECT_HAS
     subprocess.run(["sed", "-i", "-e", f"s/TOTAL_CODE_SIZE/{hex(TOTAL_CODE_SIZE)}/g", "tmpUnpack.asm"])
     subprocess.run(["sed", "-i", "-e", f"s/PARTIAL_KEY/{hex(key)}/g", "tmpUnpack.asm"])
     subprocess.run(["sed", "-i", "-e", f"s/CORRECT_HASH/{final_string}/g", "tmpUnpack.asm"])
+    subprocess.run(["sed", "-i", "-e", f"s/ADDRESS_OEP/{hex(ADDRESS_OEP + 0x400000)}/g", "tmpUnpack.asm"])
     subprocess.run(["nasm", "tmpUnpack.asm"])
     subprocess.run(["rm", "tmpUnpack.asm"])
     with open("tmpUnpack", "rb") as f:
@@ -484,8 +531,8 @@ def main(argv):
     textEnd = sections.getEndAddr(b'.text\0\0\0')
 
     #be sure packedSize is multiple of 4
-    packedSize = textEnd - opt.getOEP()
-    while(packedSize % 4 != 0):
+    packedSize = textEnd - text
+    while(packedSize % 4 != 0 or packedSize % 4 == 0 and (packedSize/4)%2==0):
         packedSize -= 1
 
     print(hex(packedSize))
@@ -501,10 +548,10 @@ def main(argv):
     key = generateKey()
     print(f"key : {key}")
 
-    packedText = xorDat(binary[entry:entry + packedSize], key)
-    goodHash = hashing(binary[entry:entry + packedSize])
+    packedText = xorDat(binary[text:text + packedSize], key)
+    goodHash = hashing(binary[text:text + packedSize])
     
-    unpacker = createUnpacker(entry, packedSize, key, goodHash)
+    unpacker = createUnpacker(entry, text, packedSize, key, goodHash)
     print(f"entry : {hex(entry)} size : {hex(textEnd - entry)} end : {hex(textEnd)}")
 
     #######################################################
@@ -515,21 +562,28 @@ def main(argv):
     # Create new pack section
     sections.addSection(b'.unpack\0', len(unpacker), 0x1000, 0x60000020)
     pe.addSection()
+    opt.affiche()
+    opt.addCode(0x1000)
+    opt.setSectionsSize(sections.getSectionsTotalSize())
     # Get starting and finishing address of .unpack and .text section
     upckStart = sections.getStartAddr(b'.unpack\0')
     upckEnd = sections.getEndAddr(b'.unpack\0')
-    text = sections.getStartAddr(b'.text\0\0\0')
-    textEnd = sections.getEndAddr(b'.text\0\0\0')
 
     # Change entry point
     opt.setEP(sections.getVirtStart(b'.unpack\0'))
 
-    ############ PRINT BEFORE ##############
+    ############ PRINT AFTER ##############
     sections.sectionsInfo(True)
+    opt.affiche()
 
     #######################################################
     #                     PACKING BACK                    #
     #######################################################
+    startSize = sections.getStartSize()
+    sectionsOutput = b''
+    for i in range(len(startSize)):
+        if i != 0 and i != len(startSize)-1:
+            sectionsOutput += binary[startSize[i][0]:startSize[i][0] + startSize[i][1]]
 
     packedBin = (
         # Headers
@@ -537,9 +591,8 @@ def main(argv):
         binary[endSectionHeader+40:text] + # endSectionHeader + 40 (.packed added)
 
         # Sections
-        binary[text:opt.getOEP()] + packedText + 
-        binary[opt.getOEP() + packedSize:upckStart] + unpacker + b'\x00'*(0x1000-len(unpacker)) +
-        binary[upckStart:]
+        packedText + binary[text + packedSize:textEnd] + 
+        sectionsOutput + unpacker + b'\x00'*(0x1000-len(unpacker))
     )
 
     with open("{}.packed.exe".format(argv[1]), "wb") as f:
