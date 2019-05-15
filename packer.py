@@ -97,6 +97,11 @@ def giveInfo(binary, offsets, msdos, pe, opt, sections):
     opt.printAll(sections, len(binary), offsets["section"])
     print(f"################ SECTIONS ###############\nStarts at : {hex(offsets['section'])}")
     sections.sectionsInfo(True)
+    nbleft = (opt.SizeOfHeaders - (offsets['section'] + pe.NumberOfSections * 40)) / 40
+    if nbleft >= 1:
+        print(f"\n\033[32mCan add {nbleft} sections\033[39m")
+    else:
+        print(f"\n\033[31mCan't add any section. Size left = {nbleft} sections\033[39m")
 
 
 def testSectionName(sectionName, default, sections, exists):
