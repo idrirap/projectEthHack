@@ -215,8 +215,10 @@ class PEOptHeader:
         pattern = ""
         if arch == 32:
             pattern = "<HccLLLLLLLLLLHHHHHHLLLLHHLLLLL"
+            size = 96
         else:
             pattern = "<HccLLLLLLLLLLHHHHHHLLLLHHQQQQL"
+            size = 96 + 16
         (
             self.PEOptsignature, #short
             self.MajorLinkerVersion, #char
@@ -249,7 +251,7 @@ class PEOptHeader:
             self.LoaderFlags, #long
             self.NumberOfRvaAndSizes #long   
             #data_directory DataDirectory[NumberOfRvaAndSizes]
-        ) = unpack(pattern, header[0:96])
+        ) = unpack(pattern, header[0:size])
         self.data_directory = [{"virtualAddress": 0, "size": 0} for i in range(self.NumberOfRvaAndSizes)]
         for i in range(self.NumberOfRvaAndSizes):
             (
@@ -262,15 +264,15 @@ class PEOptHeader:
     def printAll(self, sections, fileSize, sectionOffset):
         output =f'MinorLinkerVersion : {self.MinorLinkerVersion} \n'
         if self.SizeOfCode != sections.getSizeOf("code"):
-            output += f'\033[31mSizeOfCode : {hex(self.SizeOfCode)} != {hex(sections.getSizeOf("code"))}\033[39m\n'
+            output += f'\033[31mSizeOfCode : {hex(self.SizeOfCode)} != {hex(sections.getSizeOf("code"))} (real)\033[39m\n'
         else:
             output += f'\033[32mSizeOfCode : {hex(self.SizeOfCode)}\033[39m\n'
         if self.SizeOfInitializedData != sections.getSizeOf("initialized"):
-            output += f'\033[31mSizeOfInitializedData : {hex(self.SizeOfInitializedData)} != {hex(sections.getSizeOf("initialized"))}\033[39m\n'
+            output += f'\033[31mSizeOfInitializedData : {hex(self.SizeOfInitializedData)} != {hex(sections.getSizeOf("initialized"))} (real)\033[39m\n'
         else:
             output += f'\033[32mSizeOfInitializedData : {hex(self.SizeOfInitializedData)}\033[39m\n'
         if self.SizeOfUninitializedData != sections.getSizeOf("uninitialized"):
-            output += f'\033[31mSizeOfUninitializedData : {hex(self.SizeOfUninitializedData)} != {hex(sections.getSizeOf("uninitialized"))}\033[39m\n'
+            output += f'\033[31mSizeOfUninitializedData : {hex(self.SizeOfUninitializedData)} != {hex(sections.getSizeOf("uninitialized"))} (real)\033[39m\n'
         else:
             output += f'\033[32mSizeOfUninitializedData : {hex(self.SizeOfUninitializedData)}\033[39m\n'
         output += (
@@ -293,12 +295,12 @@ class PEOptHeader:
             f'Win32VersionValue : {hex(self.Win32VersionValue)} \n'
         )
         if self.SizeOfImage != fileSize:
-            output += f'\033[31mSizeOfImage : {hex(self.SizeOfImage)} != {hex(fileSize)}\033[39m\n'
+            output += f'\033[31mSizeOfImage : {hex(self.SizeOfImage)} != {hex(fileSize)} (real)\033[39m\n'
         else:
             output +=f'\033[32mSizeOfImage : {hex(self.SizeOfImage)}\033[39m\n'
         headersSize = sectionOffset + 40 * len(sections.section)
         if self.SizeOfHeaders < headersSize:
-            output += f'\033[31mSizeOfHeaders : {hex(self.SizeOfHeaders)} < {hex(headersSize)}\033[39m\n'
+            output += f'\033[31mSizeOfHeaders : {hex(self.SizeOfHeaders)} < {hex(headersSize)} (real) Data might be overight\033[39m\n'
         else:
             output += f'\033[32mSizeOfHeaders : {hex(self.SizeOfHeaders)}\033[39m\n'
         output += (
@@ -543,3 +545,17 @@ class SectionHeader:
         for i in self.section:
             total += i["SizeOfRawData"]
         return total
+
+    def printBox(self):
+        col = 5
+        last = 0
+        for sect in self.section:
+            print(f"\033[3{col}m0x{format(sect['PointerToRawData'], '08x')} ################")
+            print(f" "*11 + f" {'{:^16}'.format(sect['name'].decode('utf-8'))} ")
+            print(f"0x{format(sect['PointerToRawData'] + sect['SizeOfRawData'] - 1, '08x')} ################")
+            last = sect['PointerToRawData'] + sect['SizeOfRawData']
+            col = (col + 1) % 7
+            while col <= 1:
+                col += 1
+        return last
+            
