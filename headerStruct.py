@@ -262,7 +262,13 @@ class PEOptHeader:
 
 
     def printAll(self, sections, fileSize, sectionOffset):
-        output =f'MinorLinkerVersion : {self.MinorLinkerVersion} \n'
+        peType = ""
+        if self.PEOptsignature == 267:
+            peType = "pe32"
+        elif self.PEOptsignature == 523:
+            peType = "pe32+"
+        output =f'MagicNumber : {hex(self.PEOptsignature)} ({peType})\n'
+        output +='MinorLinkerVersion : {self.MinorLinkerVersion} \n'
         if self.SizeOfCode != sections.getSizeOf("code"):
             output += f'\033[31mSizeOfCode : {hex(self.SizeOfCode)} != {hex(sections.getSizeOf("code"))} (real)\033[39m\n'
         else:
