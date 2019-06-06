@@ -103,10 +103,6 @@ def parsing(filename):
         print("Not 32 nor 64 bits")
         exit(1)
 
-    # if pe.getArch() == 64:
-    #     print("64bits not working for now")
-    #     exit(2)
-    
     # Parse optional header
     opt = headerStruct.PEOptHeader(binary[offsets["PEOpt"]:offsets["section"]], pe.getArch())
     
@@ -262,6 +258,17 @@ def main(args):
     #######################################################
     #           CREATING NEW SECTION CHANGE EP            #
     #######################################################
+
+    if sections.getLowerAddr() > opt.SizeOfHeaders:
+        verboseLog(2, "Size of header inferior to their real size... fixing")
+        opt.SizeOfHeaders = sections.getLowerAddr()
+        verboseLog(0, "Size of header fixed")
+
+    nbleft = (opt.SizeOfHeaders - (offsets['section'] + pe.NumberOfSections * 40)) / 40
+    if nbleft >= 1:
+        verboseLog(0, f"Can add {nbleft} sections")
+    else:
+        verboseLog(1, f"Can't add any section. Size left = {nbleft} sections")
 
     # Create new pack section
     addNewSection(unpackingSect, len(unpacker), pe, opt, sections)

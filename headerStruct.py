@@ -3,6 +3,10 @@
 from struct import pack, unpack
 
 """
+More info here https://docs.microsoft.com/en-us/windows/desktop/Debug/pe-format
+"""
+
+"""
  struct DOS_Header 
  {
 // short is 2 bytes, long is 4 bytes
@@ -228,8 +232,8 @@ class PEOptHeader:
             self.SizeOfUninitializedData,    #long
             self.AddressOfEntryPoint, #long
             self.BaseOfCode, #long
-            self.BaseOfData, #long
-            self.ImageBase, #long
+            self.BaseOfData, #long -> doesn't exist in 64
+            self.ImageBase, #long -> long long in 64
             self.SectionAlignment, #long   
             self.FileAlignment, #long
             self.MajorOSVersion, #short
@@ -456,7 +460,7 @@ class SectionHeader:
     def sectionsInfo(self, full):
         i = 0
         if full : 
-            print("\033[32mName, \033[33mmisc, \033[34mvirtualAddr, \033[35msizeRaw, \033[36mptrRaw, \033[39mptrReloc, ptrLine, nbReloc, nbLine, meta")
+            print("\033[32mName, \033[33mvirtualSize, \033[34mvirtualAddr, \033[35msizeRaw, \033[36mptrRaw, \033[39mptrReloc, ptrLine, nbReloc, nbLine, meta")
         for sec in self.section:
             if not full : 
                 print("{} : {} -> {} - {}".format(
@@ -564,4 +568,10 @@ class SectionHeader:
             while col <= 1:
                 col += 1
         return last
-            
+    
+    def getLowerAddr(self):
+        lower = 100000000000
+        for sect in self.section:
+            if sect["PointerToRawData"] < lower:
+                lower = sect["PointerToRawData"]
+        return lower

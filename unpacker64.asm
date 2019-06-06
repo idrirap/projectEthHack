@@ -10,6 +10,8 @@ push rdx
 push rax
 push rdx
 push rdi
+push rsi
+mov rsi, CORRECT_HASH
 ;address code area
 mov rbx, ADDRESS_CODE_START 	; start code
 mov rdx, PARTIAL_KEY 			; key
@@ -29,7 +31,7 @@ xor rdi, [rbx + rdx]
 add rdx, 8
 cmp rdx, TOTAL_CODE_SIZE
 jnz Hash
-cmp rdi, CORRECT_HASH
+cmp rdi, rsi
 jz run_prog
 revert_xor: 					; undo xor
 sub rdx, 8
@@ -40,6 +42,7 @@ inc al
 jmp start_main_loop
 run_prog:						; goto start
 ;epilogue
+pop rsi
 pop rdi
 pop rdx
 pop rax
