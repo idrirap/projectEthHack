@@ -50,7 +50,7 @@ def createUnpacker(ADDRESS_OEP, ADDRESS_CODE_START, TOTAL_CODE_SIZE, PARTIAL_KEY
         mask = 0xFFFFFFFFFFFFFF00
         hexFormat = '016x'
         file = "unpacker64.asm"
-        runtimeOffset = 0x400000 # TODO : check this value
+        runtimeOffset = 0x140000000
     else:
         exit(5)
 
