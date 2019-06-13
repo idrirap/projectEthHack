@@ -1,4 +1,4 @@
-# projectEthHack
+# Project Ethical Hacking
 School project made for the course of ethical hacking at FH Joanneum.
 This script written in python3 is made to pack 32 and 64 bits windows PE Executables on x86 architecture.
 
@@ -24,7 +24,7 @@ The parsing is executed using the unpack library. The structure of each section 
 The msdos header. Useless, present only for legacy purposes. It is divided in two parts, some metadata and a short program telling you "this application cannot be run in dos mode".
 Since the size of this small programm can vary, the first byte of the next section is indicated in the long **e_lfanew**.
 
-#### The COFF File Header
+#### The COFF File Header
 Starts just after the "PE\0\0" signature, called PEHeader in my code.
 The most important parts of this header are the 2nd value, the **machine** value, it gives you the information about the kind of machine this binary is supposed to run on. This is while parsing this variable that the program is able to tell if this is a 32_x86 or a 64_x86 application. If this is any other architecture, the execution is stopped.
 Then the 3rd value, the **numberOfSections**. This is useful in order to parse the section header later.
@@ -65,7 +65,7 @@ ret
 Another problem occure when you try to add absolute variable as an adresse. Because the address of original entry point is supposed to be dynamicaly translated to a virtual address when the program is starting. So I had to figure out that I had to add 0x400000 to this address to get the right value in 32 bits and 0x140000000 in 64.
 
 ### Commands
-```sh
+```
 usage: packer.py [-h] [-i] [-s SECTION] [-n NEW] [-v] filename
 
 Packer for windows 32/64 binary
