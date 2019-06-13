@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 import secrets
 import sys
@@ -6,6 +6,10 @@ import subprocess
 import argparse
 
 import headerStruct
+
+def calculateSizeOfTheImage(lastVirtAddr, size, SectAlignment):
+    mult = int((size-1) / SectAlignment) + 1
+    return lastVirtAddr + (SectAlignment * mult)
 
 def generateKey(arch):
     # init values
@@ -40,7 +44,7 @@ def xorDat(data, key):
     return data
 
 
-def createUnpacker(ADDRESS_OEP, ADDRESS_CODE_START, TOTAL_CODE_SIZE, PARTIAL_KEY, CORRECT_HASH, arch): # TODO Arch 32/64
+def createUnpacker(ADDRESS_OEP, ADDRESS_CODE_START, TOTAL_CODE_SIZE, PARTIAL_KEY, CORRECT_HASH, arch):
     if arch == 32:
         mask = 0xFFFFFF00
         hexFormat = '08x'
@@ -121,7 +125,8 @@ def giveInfo(binary, offsets, msdos, pe, opt, sections):
     print(f"################### PE ##################\nStarts at : {hex(offsets['pe'])}")
     pe.printAll()
     print(f"############ OPTIONAL HEADERS ###########\nStarts at : {hex(offsets['PEOpt'])}")
-    opt.printAll(sections, len(binary), offsets["section"])
+    imgSize = calculateSizeOfTheImage(sections.getSectionLast("VirtualAddress"), sections.getSectionLast("Misc"), opt.SectionAlignment)
+    opt.printAll(sections, imgSize, offsets["section"])
     print(f"################ SECTIONS ###############\nStarts at : {hex(offsets['section'])}")
     sections.sectionsInfo(True)
     nbleft = (opt.SizeOfHeaders - (offsets['section'] + pe.NumberOfSections * 40)) / 40
@@ -168,6 +173,12 @@ def addNewSection(newSect, size, pe, opt, sections):
     sections.addSection(newSect, size, 0x1000, 0x60000020)
     pe.addSection()
     opt.addCode(0x1000)
+    imgSize = calculateSizeOfTheImage(
+        sections.getSectionLast("VirtualAddress"), 
+        sections.getSectionLast("Misc"), 
+        opt.SectionAlignment,
+    )
+    opt.setSizeOfImage(imgSize)
     opt.rmChecksum()
 
 
@@ -302,7 +313,7 @@ verbose = False
 
 if __name__=="__main__":
     
-    parser = argparse.ArgumentParser(description='Pimp my section')
+    parser = argparse.ArgumentParser(description='Packer for windows 32/64 binary')
     parser.add_argument(
         'filename', metavar='filename', type=str,
         help='Name of the executable to tweak'

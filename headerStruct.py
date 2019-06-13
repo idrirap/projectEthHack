@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 from struct import pack, unpack
 
@@ -265,7 +265,7 @@ class PEOptHeader:
         self.OEP = self.AddressOfEntryPoint 
 
 
-    def printAll(self, sections, fileSize, sectionOffset):
+    def printAll(self, sections, imgSize, sectionOffset):
         peType = ""
         if self.PEOptsignature == 267:
             peType = "pe32"
@@ -304,8 +304,8 @@ class PEOptHeader:
             f'MinorSubsystemVersion : {hex(self.MinorSubsystemVersion)} \n' +
             f'Win32VersionValue : {hex(self.Win32VersionValue)} \n'
         )
-        if self.SizeOfImage != fileSize:
-            output += f'\033[31mSizeOfImage : {hex(self.SizeOfImage)} != {hex(fileSize)} (real)\033[39m\n'
+        if self.SizeOfImage != imgSize:
+            output += f'\033[31mSizeOfImage : {hex(self.SizeOfImage)} != {hex(imgSize)} (real)\033[39m\n'
         else:
             output +=f'\033[32mSizeOfImage : {hex(self.SizeOfImage)}\033[39m\n'
         headersSize = sectionOffset + 40 * len(sections.section)
@@ -353,19 +353,22 @@ class PEOptHeader:
 
     def addCode(self, size):
         self.SizeOfCode += size
+
+
+    def setSizeOfImage(self, size):
         self.SizeOfImage += size
+
 
     def setSectionsSize(self, size):
         self.SizeOfImage = self.SizeOfHeaders + size
 
+
     def setEP(self, newEP):
         self.AddressOfEntryPoint = newEP
 
+
     def rmChecksum(self):
         self.Checksum = 0
-
-    def getFileSize(self):
-        return self.SizeOfImage
 
 """
     struct IMAGE_SECTION_HEADER 
@@ -533,6 +536,11 @@ class SectionHeader:
 
     def getSectionEnd(self):
         return self.getEndAddr(self.section[-1]["name"])
+
+
+    def getSectionLast(self, data):
+        return self.section[-1][data]
+
 
     def getSectionStart(self):
         return self.getStartAddr(self.section[0]["name"])
