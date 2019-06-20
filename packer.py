@@ -306,7 +306,7 @@ def main(args):
         f.write(packedBin)
 
     verboseLog(0, f"{args.filename}.packed.exe created")
-
+    return 0
 
 verbose = False
 

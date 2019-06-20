@@ -452,7 +452,7 @@ class SectionHeader:
             mask = 0x00000080
         if mask == 0:
             print("Incorrect mask")
-            exit(5)
+            exit(2)
         total = 0
         for sec in self.section:
             if sec["Characteristics"] & mask != 0:
