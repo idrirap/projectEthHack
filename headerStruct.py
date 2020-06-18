@@ -356,7 +356,7 @@ class PEOptHeader:
 
 
     def setSizeOfImage(self, size):
-        self.SizeOfImage += size
+        self.SizeOfImage = size
 
 
     def setSectionsSize(self, size):
