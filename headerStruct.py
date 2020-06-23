@@ -265,7 +265,7 @@ class PEOptHeader:
         self.OEP = self.AddressOfEntryPoint 
 
 
-    def printAll(self, sections, imgSize, sectionOffset):
+    def printAll(self, sections, imgSize, sectionOffset, binary):
         peType = ""
         if self.PEOptsignature == 267:
             peType = "pe32"
@@ -323,6 +323,10 @@ class PEOptHeader:
             f'SizeOfHeapCommit : {hex(self.SizeOfHeapCommit)} \n' +
             f'LoaderFlags : {hex(self.LoaderFlags)} \n' 
         )
+        for i in range(self.NumberOfRvaAndSizes):
+            if self.data_directory[i]["virtualAddress"] != 0 and self.data_directory[i]["size"] != 0:
+                output += f'Directory{i} addr : {hex(self.data_directory[i]["virtualAddress"])} \n'
+                output += f'Size{i} : {hex(self.data_directory[i]["size"])} \n'
         print(output)
 
 
@@ -583,3 +587,373 @@ class SectionHeader:
             if sect["PointerToRawData"] < lower:
                 lower = sect["PointerToRawData"]
         return lower
+
+
+class Rsrc:
+    def __init__(self,section,virtAddr):
+        self.resourceDirectory = ResourceDirectory(section,virtAddr, 0)
+        self.section = section
+        
+
+    def repack(self):
+        output = b""
+        output += self.resourceDirectory.repack()
+        output += b"\x00" * (len(self.section) - len(output))
+        return output
+
+    def change(self):
+        self.resourceDirectory.change()
+
+    def __str__(self):
+        return str(self.resourceDirectory)
+
+
+class ResourceDirectory:
+    def __init__(self, section, virtAddr, start):
+        (
+            self.Characteristics,
+            self.TimeDateStamp,
+            self.MajorVersion,
+            self.MinorVersion,
+            self.NumberOfNameEntries,
+            self.NumberOfIDEntries
+        ) = unpack("<LLHHHH", section[start:start+16])
+
+        entryOffset = start+16
+
+        self.parseDirectoryString = None
+        
+        self.NamedEntries = [
+        {
+        "NameOffset" : None,
+        "Offset" : None,
+        "DataEntry" : None,
+        } for i in range(self.NumberOfNameEntries)]
+        
+        for i in range(self.NumberOfNameEntries):
+            (
+                self.NamedEntries[i]["NameOffset"],
+                self.NamedEntries[i]["Offset"],
+            ) = unpack("<LL", section[entryOffset+8*i:entryOffset+8*(i+1)])
+
+            offset = self.NamedEntries[i]["Offset"] & (0xffffffff>>1)
+            if self.NamedEntries[i]["Offset"] >> 31 == 0:
+                self.NamedEntries[i]['DataEntry'] = RessourceDataEntry(section, virtAddr, offset)
+
+            else:
+                self.NamedEntries[i]["DataEntry"] = ResourceDirectory(section, virtAddr, offset)
+
+        start = entryOffset + 8 * self.NumberOfNameEntries
+        self.IDEntries = [
+        {
+        "integerID" : None,
+        "Offset" : None,
+        "DataEntry" : None,
+        } for i in range(self.NumberOfIDEntries)]
+        
+        for i in range(self.NumberOfIDEntries):
+            (
+                self.IDEntries[i]["integerID"],
+                self.IDEntries[i]["Offset"],
+            ) = unpack("<LL", section[start+8*i:start+8*(i+1)])
+
+            offset = self.IDEntries[i]["Offset"] & (0xffffffff>>1)
+
+            if self.IDEntries[i]["Offset"] >> 31 == 0:
+                self.IDEntries[i]['DataEntry'] = RessourceDataEntry(section, virtAddr, offset)
+
+            else:
+                self.IDEntries[i]["DataEntry"] = ResourceDirectory(section, virtAddr, offset)
+
+
+    def repack(self):
+        outputDirectory = b""
+        outputRDE = b""
+        output = pack("<LLHHHH", 
+            self.Characteristics,
+            self.TimeDateStamp,
+            self.MajorVersion,
+            self.MinorVersion,
+            self.NumberOfNameEntries,
+            self.NumberOfIDEntries,
+        )
+        for named in self.NamedEntries:
+            output += pack("<LL",
+                named['NameOffset'],
+                named['Offset'],
+            )
+        for ID in self.IDEntries:
+            output += pack("<LL",
+                ID['integerID'],
+                ID['Offset'],
+            )
+        for named in self.NamedEntries:
+            output += named['DataEntry'].repack()
+        for ID in self.IDEntries:
+            output += ID['DataEntry'].repack()
+
+        return output
+
+
+    def change(self):
+        self.setTimestamp()
+        for n in self.NamedEntries:
+            if n['DataEntry'] != None:
+                n['DataEntry'].change()
+        for i in self.IDEntries:
+            if i['DataEntry'] != None:
+                i['DataEntry'].change()
+
+
+    def setTimestamp(self, time=6660666):
+        self.TimeDateStamp = time
+
+
+    def __str__(self):
+        out = (
+            f"Characteristics : {self.Characteristics}\n"+
+            f"TimeDateStamp : {self.TimeDateStamp}\n"+
+            f"MajorVersion : {self.MajorVersion}\n"+
+            f"MinorVersion : {self.MinorVersion}\n"+
+            f"NumberOfNameEntries : {self.NumberOfNameEntries}\n"+
+            f"NumberOfIDEntries : {self.NumberOfIDEntries}\n"
+            )
+
+        for i in range(self.NumberOfNameEntries):
+            out += f'NameOffset : {self.NamedEntries[i]["NameOffset"] & (0xffffffff>>1)} \n'
+            if self.NamedEntries[i]["Offset"] >> 31 == 1:
+                out += f'SubdirectoryOffset : {self.NamedEntries[i]["Offset"] & (0xffffffff>>1)} \n'
+            else:
+                out += f'DataEntryOffset : {self.NamedEntries[i]["Offset"] & (0xffffffff>>1)} \n'
+            out += f'DataEntry : {self.NamedEntries[i]["DataEntry"]}\n'
+                    
+
+        for i in range(self.NumberOfIDEntries):
+            out += f'integerID : {self.IDEntries[i]["integerID"]} \n'
+            if self.IDEntries[i]["Offset"] >> 31 == 1:
+                out += f'SubdirectoryOffset : {self.IDEntries[i]["Offset"] & (0xffffffff>>1)} \n'
+            else:
+                out += f'DataEntryOffset : {self.IDEntries[i]["Offset"] & (0xffffffff>>1)} \n'
+            out += f'DataEntry : \n\n{self.IDEntries[i]["DataEntry"]}\n'
+                    
+
+        return out
+
+
+class RessourceDataEntry:
+    def __init__(self, binary, virtAddr, offset):
+        self.parseDirectoryString = None
+        self.offsetInSection = offset
+        (
+            self.dataRVA,
+            self.size,
+            self.codepage,
+            self.reserved,
+        )=unpack("<LLLL", binary[offset:offset+16])
+        self.realOffset = self.dataRVA - virtAddr
+        self.virtAddr = virtAddr
+
+        if self.codepage == 0:
+            self.data = binary[self.realOffset:self.realOffset+self.size]
+            self.parseDirectoryString = ParseDirectoryString(self.data, self.realOffset)
+
+
+    def repack(self):
+        output = pack("<LLLL",
+            self.dataRVA,
+            self.size,
+            self.codepage,
+            self.reserved,
+        )
+
+        output += b"\x00" * max(0,self.realOffset - (self.offsetInSection + 16))
+        output += self.parseDirectoryString.repack()
+        return output
+
+
+    def setOffset(self, offset):
+        self.realOffset = offset
+        self.dataRVA = offet + self.virtAddr
+
+
+    def __str__(self):
+        if self.parseDirectoryString != None:
+            return str(self.parseDirectoryString)
+
+
+    def change(self):
+        if self.parseDirectoryString != None:
+            self.parseDirectoryString.change()
+
+
+
+class ParseDirectoryString:
+    def __init__(self, binary, startAddr):
+        self.VS_VERSIONINFO = {
+            "wLength":None,
+            "wValueLength":None,
+            "wType":None,
+            "szKey":None,
+            "Padding1":None,
+            "Value":None,
+            #"Padding2":None,
+        }
+
+        self.StringFileInfo = {
+            "wLength":None,
+            "wValueLength":None,
+            "wType":None,
+            "szKey":None,
+            "Padding":None,
+            "Children":None,
+        }
+
+        self.StringTable = {
+            "wLength":None,
+            "wValueLength":None,
+            "wType":None,
+            "szKey":None,
+            "Padding":None,
+            "Children":None,
+        }
+
+        (
+            self.VS_VERSIONINFO['wLength'],
+            self.VS_VERSIONINFO['wValueLength'],
+            self.VS_VERSIONINFO['wType'],
+            self.VS_VERSIONINFO['szKey'],
+        ) = unpack("<HHH30s",binary[:36])
+
+        endPad = 36 + ((startAddr+36)%32)
+        self.VS_VERSIONINFO['Padding1'] = binary[36:endPad]
+        
+        wValueLength = self.VS_VERSIONINFO['wValueLength']
+        self.VS_VERSIONINFO['Value'] = binary[endPad:endPad+wValueLength]
+
+        startSFI = wValueLength+endPad
+        (
+            self.StringFileInfo['wLength'],
+            self.StringFileInfo['wValueLength'],
+            self.StringFileInfo['wType'],
+            self.StringFileInfo['szKey'],
+        ) = unpack("<HHH30s", binary[startSFI:startSFI+36])
+
+        pad = startSFI + 36 + ((startAddr+startSFI+36)%32)
+        self.StringFileInfo['Padding'] = binary[startSFI+36:pad]
+
+        startST = pad
+        (
+            self.StringTable['wLength'],
+            self.StringTable['wValueLength'],
+            self.StringTable['wType'],
+            self.StringTable['szKey'],
+            #self.StringTable['Padding'],
+        ) = unpack("<HHH16s", binary[startST:startST+22])
+
+
+        #pad = startST + 22 + ((startAddr+startST+22)%16)
+        #self.StringTable['Padding'] = binary[startST+22:pad]
+        pad = startST + 24
+
+
+        startSS = pad
+
+        self.strings = []
+        while startSS < self.VS_VERSIONINFO['wLength']:
+            self.strings.append({
+                "wLength":None,
+                "wValueLength":None,
+                "wType":None,
+                "szKey":None,
+                "Padding":None,
+                "Value":None,
+            })
+            (
+                self.strings[-1]['wLength'],
+                self.strings[-1]['wValueLength'],
+                self.strings[-1]['wType'],
+            ) = unpack(f"<HHH", binary[startSS:startSS+6])
+            startBuff = startSS+6
+            size1 = whileNoZero(binary[startBuff:])
+            self.strings[-1]['szKey'] = binary[startBuff:startBuff+size1]
+            pad = startBuff+size1 + whileZero(binary[startBuff+size1:])
+            self.strings[-1]['Padding'] = binary[startBuff+size1:pad]
+            self.strings[-1]['Value'] = binary[pad:pad+self.strings[-1]['wValueLength']*2]
+            startSS=pad+self.strings[-1]['wValueLength']*2 + whileZero(binary[pad+self.strings[-1]['wValueLength']*2:])
+
+
+
+    def __str__(self):
+        out = f"""{self.VS_VERSIONINFO}
+            {self.StringFileInfo}
+            {self.StringTable}
+            {self.strings}"""
+
+        return out
+    
+    def repack(self):
+        output = b""
+        VS_VERSIONINFO = pack(f"<HHH{len(self.VS_VERSIONINFO['szKey'])}s",
+            self.VS_VERSIONINFO['wLength'],
+            self.VS_VERSIONINFO['wValueLength'],
+            self.VS_VERSIONINFO['wType'],
+            self.VS_VERSIONINFO['szKey'],
+        ) + self.VS_VERSIONINFO['Padding1'] + self.VS_VERSIONINFO['Value']
+
+
+        StringFileInfo = pack(f"<HHH{len(self.StringFileInfo['szKey'])}s",
+            self.StringFileInfo['wLength'],
+            self.StringFileInfo['wValueLength'],
+            self.StringFileInfo['wType'],
+            self.StringFileInfo['szKey'],
+        ) + self.StringFileInfo['Padding']
+
+        StringTable = pack(f"<HHH{len(self.StringTable['szKey'])}s",
+            self.StringTable['wLength'],
+            self.StringTable['wValueLength'],
+            self.StringTable['wType'],
+            self.StringTable['szKey'],
+        )
+
+        StringStruct = b""
+        for string in self.strings:
+            StringStruct+= pack(f"<HHH",
+                string['wLength'],
+                string['wValueLength'],
+                string['wType'],
+            ) + string['szKey'] + string['Padding'] + string['Value']
+
+        output = VS_VERSIONINFO + StringFileInfo + StringTable + StringStruct
+        return output
+
+    def change(self):
+        for s in self.strings:
+            if s['szKey'] == b"I\x00n\x00t\x00e\x00r\x00n\x00a\x00l\x00N\x00a\x00m\x00e\x00\x00\x00":
+                l = len(s['Value'])
+                s['Value'] = b"h\x00e\x00l\x00l\x00o\x00.\x00e\x00x\x00e\x00\x00\x00"
+                s['wValueLength'] = 5
+                delta = 2*l - 2*5
+                s['wLength'] -= delta
+                self.VS_VERSIONINFO['wLength'] -= delta
+                self.StringFileInfo['wLength'] -= delta
+                self.StringTable['wLength'] -= delta
+
+            if s['szKey'] == b'C\x00o\x00m\x00m\x00e\x00n\x00t\x00s\x00\x00\x00':
+                l = len(s['Value'])
+                b = b"T\x00e\x00s\x00t\x00i\x00n\x00g\x00!\x00!\x00\x00\x00"
+                s['Value']=b + b"\x00"*(l-len(b))
+
+
+
+
+
+def whileZero(binary):
+    for i in range(len(binary)//2):
+        if binary[i*2:(i*2)+2] != b"\x00\x00":
+            return (i*2)
+    return 0
+
+def whileNoZero(binary):
+    for i in range(len(binary)//2):
+        if binary[i*2:(i*2)+2] == b"\x00\x00":
+            return (i*2)+2

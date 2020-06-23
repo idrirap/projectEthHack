@@ -126,7 +126,7 @@ def giveInfo(binary, offsets, msdos, pe, opt, sections):
     pe.printAll()
     print(f"############ OPTIONAL HEADERS ###########\nStarts at : {hex(offsets['PEOpt'])}")
     imgSize = calculateSizeOfTheImage(sections.getSectionLast("VirtualAddress"), sections.getSectionLast("Misc"), opt.SectionAlignment)
-    opt.printAll(sections, imgSize, offsets["section"])
+    opt.printAll(sections, imgSize, offsets["section"], binary)
     print(f"################ SECTIONS ###############\nStarts at : {hex(offsets['section'])}")
     sections.sectionsInfo(True)
     nbleft = (opt.SizeOfHeaders - (offsets['section'] + pe.NumberOfSections * 40)) / 40
@@ -154,6 +154,25 @@ def giveInfo(binary, offsets, msdos, pe, opt, sections):
         print(f"\033[31m0x{format(endOfLastSection, '08x')} ################")
         print(" "*11 + "     UNKNOWN    ")
         print(f"0x{format(len(binary) - 1, '08x')} ################")
+        
+    print(f"\033[39m###########################")
+
+    rsrc = headerStruct.Rsrc(binary[sections.getStartAddr(b".rsrc\x00\x00\x00"):sections.getEndAddr(b".rsrc\x00\x00\x00")],
+                             sections.getVirtStart(b".rsrc\x00\x00\x00")
+    )
+    print(rsrc)
+
+
+def changeRsrc(binary, sections, filename):
+    rsrc = headerStruct.Rsrc(binary[sections.getStartAddr(b".rsrc\x00\x00\x00"):sections.getEndAddr(b".rsrc\x00\x00\x00")],
+                             sections.getVirtStart(b".rsrc\x00\x00\x00")
+    )
+    rsrc.change()
+    with open(f"{filename}.rsrc.exe", "wb") as f:
+        f.write(binary[:sections.getStartAddr(b".rsrc\x00\x00\x00")] + 
+                rsrc.repack() + 
+                binary[sections.getEndAddr(b".rsrc\x00\x00\x00"):]
+        )
 
 
 def testSectionName(sectionName, default, sections, exists):
@@ -225,6 +244,9 @@ def main(args):
     if args.info:
         giveInfo(binary, offsets, msdos, pe, opt, sections)
         return 0
+
+    if args.rsrc:
+        changeRsrc(binary, sections, args.filename)
 
     verboseLog(0, "Binary parsed")
 
@@ -333,6 +355,10 @@ if __name__=="__main__":
     parser.add_argument(
         '-v', '--verbose', action='store_true',
         help='Activate verbosity in the program', default=False
+    )
+    parser.add_argument(
+        '-r', '--rsrc', action='store_true',
+        help='Rewrite .rsrc section', default=False
     )
     args = parser.parse_args()
     verbose = args.verbose
